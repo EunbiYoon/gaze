@@ -192,7 +192,7 @@
       const hitR = el("rect", { x: m.l, y: y - rowH / 2, width: iw, height: rowH, fill: "transparent" }, svg);
       hitR.addEventListener("mousemove", (ev) => {
         const box = host.getBoundingClientRect();
-        tip.show(`<b>${r.name}</b>` + row(null, "평균 차이", r.mean.toFixed(1) + "pp") + row(null, "95% CI", `[${r.lo.toFixed(1)}, ${r.hi.toFixed(1)}]`) +
+        tip.show(`<b>${r.name}</b>` + row(null, "mean diff", r.mean.toFixed(1) + "pp") + row(null, "95% CI", `[${r.lo.toFixed(1)}, ${r.hi.toFixed(1)}]`) +
           row(null, "Wilcoxon p", r.p.toFixed(3)), ev.clientX - box.left, ev.clientY - box.top);
       });
       hitR.addEventListener("mouseleave", () => tip.hide());

@@ -1,76 +1,76 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Box-free Gaze Search</title>
-<meta name="description" content="박스 라벨 없이 학습하는 시각 탐색 — CLIP 보상 PPO 시선 정책 + 사람 시선 coverage loss. 진행 상황 요약.">
+<meta name="description" content="Visual search learned without box labels — a CLIP-rewarded PPO gaze policy plus a human-gaze coverage loss. Progress summary.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top"><div class="in">
   <a class="brand" href="index.html">Box-free Gaze Search</a>
-  <nav><a href="index.html" aria-current="page">개요</a><a href="results.html">결과</a><a href="runbook.html">실행 순서</a></nav>
+  <nav><a href="index.html" aria-current="page">Overview</a><a href="results.html">Results</a><a href="runbook.html">Runbook</a></nav>
 </div></header>
 <main>
 
-<h1>박스 라벨 없이 학습하는 시각 탐색</h1>
-<p class="lede">CLIP 텍스트 유사도를 보상으로 쓰는 PPO 시선 정책(saccade / zoom / stop)에 사람 시선(COCO-Search18 fixation)을 CGL 스타일 coverage loss로 더해, 박스 없이 목표 찾기 성능을 올릴 수 있는지 본다. 박스는 평가에만 쓴다.</p>
+<h1>Visual search learned without box labels</h1>
+<p class="lede">We train a PPO gaze policy (saccade / zoom / stop) rewarded by CLIP text similarity, and add human gaze (COCO-Search18 fixations) through a CGL-style coverage loss, to see whether target-finding improves without boxes. Boxes are used only for evaluation.</p>
 
-<h2>지금 어디까지 왔나</h2>
+<h2>Where we are</h2>
 <div class="grid3">
-  <div class="verdict pass"><div class="lab">게이트 1 · 통과</div>
-    <p><b>CLIP 신호는 쓸 만하다.</b> 같은 glimpse 수에서 CLIP-greedy가 random보다 25–35pp 높다 (1장: 33.4% vs 4.2%).</p></div>
-  <div class="verdict fail"><div class="lab">게이트 2 · 미통과 (예비)</div>
-    <p><b>RL이 CLIP-greedy를 못 이긴다.</b> 같은 budget 24에서 RL clip_full 50.4% vs greedy 67.9%.</p></div>
-  <div class="verdict fail"><div class="lab">CGL 효과 · 음수 (예비)</div>
-    <p><b>사람 시선 loss가 오히려 낮춘다.</b> clip_full_cgl − clip_full = −8.8pp, 95% CI [−14.9, −2.7], p=0.016.</p></div>
+  <div class="verdict pass"><div class="lab">Gate 1 · Passed</div>
+    <p><b>The CLIP signal is usable.</b> At equal glimpse counts, CLIP-greedy beats random by 25–35pp (1 glimpse: 33.4% vs 4.2%).</p></div>
+  <div class="verdict fail"><div class="lab">Gate 2 · Not passed (preliminary)</div>
+    <p><b>RL does not beat CLIP-greedy.</b> At the same budget of 24, RL clip_full reaches 50.4% vs greedy 67.9%.</p></div>
+  <div class="verdict fail"><div class="lab">CGL effect · Negative (preliminary)</div>
+    <p><b>The human-gaze loss hurts.</b> clip_full_cgl − clip_full = −8.8pp, 95% CI [−14.9, −2.7], p=0.016.</p></div>
 </div>
-<p class="small">예비 결과: 5 fold 중 2개(fold 0·1), seed 0 하나, held-out 286장. 최종 숫자가 아니다.</p>
+<p class="small">Preliminary: 2 of 5 folds (folds 0 and 1), a single seed (0), 286 held-out images. These are not final numbers.</p>
 
-<h2>핵심 숫자</h2>
+<h2>Key numbers</h2>
 <div class="grid3">
-  <div class="card stat"><div class="k">CLIP 전체 argmax (모든 칸 봄, 상한)</div><div class="v">70.8%</div><div class="d">713장 · 256칸</div></div>
-  <div class="card stat"><div class="k">CLIP-greedy, 16 glimpse</div><div class="v">65.1%</div><div class="d">random 30.6%</div></div>
-  <div class="card stat"><div class="k">RL clip_full (held-out)</div><div class="v">50.4%</div><div class="d">평균 9.7 step · train 53.1%</div></div>
+  <div class="card stat"><div class="k">CLIP full argmax (all cells seen, upper bound)</div><div class="v">70.8%</div><div class="d">713 images · 256 cells</div></div>
+  <div class="card stat"><div class="k">CLIP-greedy, 16 glimpses</div><div class="v">65.1%</div><div class="d">random 30.6%</div></div>
+  <div class="card stat"><div class="k">RL clip_full (held-out)</div><div class="v">50.4%</div><div class="d">mean 9.7 steps · train 53.1%</div></div>
 </div>
 
-<h2>해석</h2>
+<h2>Interpretation</h2>
 <ul>
-  <li><b>과적합이 아니라 덜 학습된 상태.</b> train 성공률(≈53%)과 held-out(≈50%)이 비슷하다. 학습 곡선이 iter 400에서도 아직 오르는 중이고, run 하나가 약 77초밖에 안 걸렸다.</li>
-  <li><b>step과 glimpse는 같은 단위가 아니다.</b> RL은 4×4 격자에서 시작해 zoom을 거쳐야 가장 세밀한 칸에 닿으므로 1–2 step에서는 성공이 0이다. greedy의 glimpse는 바로 세밀한 칸을 본다. 비교할 때 이 차이를 감안해야 한다.</li>
-  <li><b>budget이 클 때의 상한은 “찾기”가 아니라 “고르기”.</b> greedy는 64 glimpse에서 목표 칸을 94% 보지만 정답은 69%. 남는 여지는 작은 budget(1–16) 구간이다.</li>
+  <li><b>Undertrained, not overfit.</b> Train success (≈53%) and held-out success (≈50%) are close. The learning curve is still rising at iter 400, and one run takes only about 77 seconds.</li>
+  <li><b>Steps and glimpses are not the same unit.</b> RL starts on a 4×4 grid and must zoom to reach the finest cells, so success is 0 at 1–2 steps. A greedy glimpse sees a fine cell directly. Keep this in mind when comparing.</li>
+  <li><b>At large budgets the ceiling is “choosing”, not “finding”.</b> At 64 glimpses greedy has seen the target cell 94% of the time but answers correctly only 69%. The remaining headroom is in the small-budget range (1–16).</li>
 </ul>
 
-<h2>파이프라인 상태</h2>
+<h2>Pipeline status</h2>
 <div class="steps">
-  <div class="step"><div class="n">1 · CACHE</div><b>glimpse 임베딩</b><span>713장 + hflip 713장</span><br><span class="badge ok">완료</span></div>
-  <div class="step"><div class="n">2 · BASELINES</div><b>random vs CLIP-greedy</b><span>budget 1–64, 256</span><br><span class="badge ok">통과</span></div>
-  <div class="step"><div class="n">3 · 작은 RL</div><b>3 spec × 2 fold × seed 0</b><span>ppo.iters=400</span><br><span class="badge no">greedy 미달</span></div>
-  <div class="step"><div class="n">4 · 진단</div><b>train fold에서 iters 늘리기</b><span>iters=1500, fold 0</span><br><span class="badge wip">다음</span></div>
+  <div class="step"><div class="n">1 · CACHE</div><b>Glimpse embeddings</b><span>713 images + 713 hflip</span><br><span class="badge ok">Done</span></div>
+  <div class="step"><div class="n">2 · BASELINES</div><b>random vs CLIP-greedy</b><span>budget 1–64, 256</span><br><span class="badge ok">Passed</span></div>
+  <div class="step"><div class="n">3 · SMALL RL</div><b>3 specs × 2 folds × seed 0</b><span>ppo.iters=400</span><br><span class="badge no">Below greedy</span></div>
+  <div class="step"><div class="n">4 · DIAGNOSIS</div><b>More iters on train fold</b><span>iters=1500, fold 0</span><br><span class="badge wip">Next</span></div>
 </div>
-<p><a href="results.html">결과 그래프 보기 →</a> · <a href="runbook.html">다음에 돌릴 명령 →</a></p>
+<p><a href="results.html">See result charts →</a> · <a href="runbook.html">Next commands to run →</a></p>
 
-<h2>원칙</h2>
+<h2>Principles</h2>
 <ul>
-  <li>하이퍼파라미터·프롬프트를 test 결과 보고 바꾸지 않는다. κ만 train fold에서 선택. iters 같은 학습 설정 진단도 train 성공률로만 판단한다.</li>
-  <li>공정 비교는 “같은 glimpse 수에서의 정확도”. CLIP 전체 argmax와 박스 학습 검출기(Faster R-CNN)는 상한 참고값.</li>
-  <li>데이터: COCO-Search18 split1 train+valid (target-present 713장, 18 카테고리). split2는 같은 데이터의 다른 분할이라 섞지 않는다. Waldo 데이터는 쓰지 않는다.</li>
+  <li>Hyperparameters and prompts are never changed after looking at test results. Only κ is selected, on the train fold. Training-setting diagnostics such as iters are judged only by train success.</li>
+  <li>The fair comparison is “accuracy at equal glimpse count”. CLIP full argmax and a box-trained detector (Faster R-CNN) are upper-bound references.</li>
+  <li>Data: COCO-Search18 split1 train+valid (713 target-present images, 18 categories). split2 is a different split of the same data and is not mixed in. Waldo data is not used.</li>
 </ul>
 
-<h2>선행 연구와 차별점</h2>
+<h2>Related work and what differs</h2>
 <div class="tw"><table>
-  <thead><tr><th>연구</th><th>내용</th></tr></thead>
+  <thead><tr><th>Work</th><th>Summary</th></tr></thead>
   <tbody>
-    <tr><td>Yang et al., CVPR 2020</td><td>COCO-Search18 공개, IRL로 사람 탐색 시선 예측</td></tr>
-    <tr><td>Papadopoulos et al., 2014</td><td>시선으로 객체 검출기 학습</td></tr>
-    <tr><td>AGIL</td><td>사람 시선으로 모방 학습 보조</td></tr>
-    <tr><td>CGL (Saran et al., 2021)</td><td>시선 coverage loss로 정책 학습 보조</td></tr>
+    <tr><td>Yang et al., CVPR 2020</td><td>Released COCO-Search18; predicts human search gaze with IRL</td></tr>
+    <tr><td>Papadopoulos et al., 2014</td><td>Trains object detectors from gaze</td></tr>
+    <tr><td>AGIL</td><td>Uses human gaze to assist imitation learning</td></tr>
+    <tr><td>CGL (Saran et al., 2021)</td><td>Gaze coverage loss to assist policy learning</td></tr>
   </tbody>
 </table></div>
-<p><b>차별점:</b> 시선을 <i>예측</i>하는 것이 아니라, 박스 없이 학습한 정책의 <b>목표 찾기 성능</b>을 올리는 것.</p>
+<p><b>What differs:</b> the goal is not to <i>predict</i> gaze, but to improve the <b>target-finding performance</b> of a policy trained without boxes.</p>
 
-<footer>업데이트 2026-10-21 · 데이터: <code>results/coco_search18/analysis/</code></footer>
+<footer>Updated 2026-10-21 · Data: <code>results/coco_search18/analysis/</code></footer>
 </main>
 </body>
 </html>
