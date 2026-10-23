@@ -1,0 +1,29 @@
+# Where's Waldo (CS682 data, COCO-style json). Every image has the same target.
+_base: base.yaml
+data: {ann: data/waldo/annotations.json, images: data/waldo/images}
+cache_dir: cache/waldo
+results_dir: results/waldo
+target_defaults:
+  query: "Waldo wearing red and white striped shirt"     # the CS682 report's query, fixed a priori
+  category: "Waldo"
+  attrs: ["a red and white striped shirt", "round black glasses", "a red and white bobble hat", "blue jeans"]
+attr_template: "a person wearing {attr}"
+grid: {levels: [8, 16, 32]}                               # Waldo is tiny in large scans
+specs:
+  oracle:         {type: oracle}
+  clip_name:      {type: clip, prompts: [name]}
+  clip_full:      {type: clip, prompts: [full]}
+  clip_mean_attr: {type: clip_attr, agg: mean}
+  clip_conj:      {type: clip_attr, agg: min}
+  clip_pe_mean:   {type: clip_ens, kappa: 0.0,  prompts: [full, para1, para2, para3, para4, para5]}
+  clip_pe_pess:   {type: clip_ens, kappa: auto, prompts: [full, para1, para2, para3, para4, para5]}
+  learned:        {type: learned, kappa: 0.0}
+  learned_pess:   {type: learned, kappa: auto}
+compare:
+  - [clip_conj, clip_full]
+  - [clip_conj, clip_mean_attr]
+  - [clip_pe_pess, clip_pe_mean]
+  - [learned_pess, learned]
+  - [clip_full, oracle]
+  - [learned, oracle]
+analysis: {budget_specs: [oracle, clip_full, clip_conj, learned_pess]}

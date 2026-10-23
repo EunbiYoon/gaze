@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gaze Search Results</title>
+<meta name="description" content="COCO-Search18 결과: 학습 없는 기준선, 작은 RL(3 spec × 2 fold), 실패 유형, CGL 효과.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><div class="in">
+  <a class="brand" href="index.html">Box-free Gaze Search</a>
+  <nav><a href="index.html">개요</a><a href="results.html" aria-current="page">결과</a><a href="runbook.html">실행 순서</a></nav>
+</div></header>
+<main>
+
+<h1>결과</h1>
+<p class="lede">COCO-Search18 target-present 713장. 기준선은 전체 713장, RL은 fold 0·1의 held-out 286장 (seed 0, <code>ppo.iters=400</code>). RL 숫자는 예비값이다.</p>
+
+<h2>1. 같은 glimpse 수에서의 성공률</h2>
+<div class="card chart" id="c-budget">
+  <h3>RL은 모든 budget에서 CLIP-greedy 아래에 있다</h3>
+  <p class="sub">x = glimpse budget(RL은 step 수, horizon 24). 기준선 = 이 budget 안에서 본 칸 중 CLIP 최고 칸을 정답으로 냈을 때.</p>
+</div>
+<p class="small">주의: RL은 4×4 격자에서 시작해 zoom으로 내려가므로 1–2 step에서는 가장 세밀한 칸에 닿지 못한다. greedy의 glimpse는 처음부터 16×16 칸이다. 기준선은 713장, RL은 286장 기준이다.</p>
+<details><summary>표로 보기</summary><div class="tw" id="t-budget"></div></details>
+
+<h2>2. 학습 곡선 (train 성공률)</h2>
+<div class="card chart" id="c-train">
+  <h3>iter 400에서도 아직 오르는 중</h3>
+  <p class="sub">PPO 학습 중 train 성공률, fold 0·1 평균. run 하나에 약 77–83초.</p>
+</div>
+<details><summary>표로 보기</summary><div class="tw" id="t-train"></div></details>
+
+<h2>3. 어떻게 실패하나</h2>
+<div class="card chart" id="c-out">
+  <h3>실패의 대부분은 엉뚱한 곳·바로 옆 칸에서 멈추기</h3>
+  <p class="sub">held-out 286장, 정책을 모든 level-0 시작점에서 greedy하게 실행. 네 부분의 합 = 100%.</p>
+</div>
+<p class="small">near-miss = 목표 바로 옆 칸에서 정지 · distractor = 1칸 넘게 떨어진 곳에서 정지 · timeout = 24 step 안에 정지 안 함. hacked(학습 보상이 목표 칸보다 높은 칸에서 정지)는 distractor의 일부: oracle 0.0%, clip_full 5.2%, clip_full_cgl 5.1%.</p>
+<details><summary>표로 보기</summary><div class="tw" id="t-main"></div></details>
+
+<h2>4. 짝지은 비교 (이미지 단위)</h2>
+<div class="card chart" id="c-pair">
+  <h3>CGL은 성공률을 낮춘다</h3>
+  <p class="sub">A − B held-out 성공률 차이(pp), 95% bootstrap CI. 비교 2개이므로 Bonferroni 기준 p &lt; 0.025.</p>
+</div>
+<details><summary>표로 보기</summary><div class="tw" id="t-pair"></div></details>
+
+<h2>5. 사람 시선과의 일치도</h2>
+<p>에이전트 fixation 지도와 사람 fixation 지도 사이 Pearson CC. 중심 편향 지도 = 0.158 [0.149, 0.167].</p>
+<div class="tw" id="t-gaze"></div>
+<p class="small">CGL을 넣어도 시선 일치도가 오르지 않았다 (0.330 vs 0.349, CI 겹침).</p>
+
+<h2>6. 프롬프트별 CLIP 단독 정확도</h2>
+<p>RL 없이, 모든 칸 중 CLIP 최고 칸이 목표인 비율(top-1). 프롬프트는 결과를 보고 고르지 않았다 — 기본값 <code>full</code> 유지.</p>
+<div class="tw" id="t-prompt"></div>
+
+<footer>원본: <code>results/coco_search18/analysis/summary.json</code>, <code>baselines.json</code>, <code>runs/*.json</code> · 업데이트 2026-10-21</footer>
+</main>
+
+<script src="data.js"></script>
+<script src="charts.js"></script>
+<script>
+(function () {
+  const D = window.DATA, C = window.Charts, pct = C.pct;
+  const NAMES = { oracle: "RL oracle", clip_full: "RL clip_full", clip_full_cgl: "RL clip_full_cgl" };
+  const SPECS = ["clip_full", "clip_full_cgl", "oracle"];
+  const ci = (a) => `${(a[0] * 100).toFixed(1)} <span class="muted">[${(a[1] * 100).toFixed(1)}, ${(a[2] * 100).toFixed(1)}]</span>`;
+  function table(id, head, rows, numFrom = 1) {
+    const h = head.map((x, i) => `<th class="${i >= numFrom ? "num" : ""}">${x}</th>`).join("");
+    const b = rows.map((r) => "<tr>" + r.map((x, i) => `<td class="${i >= numFrom ? "num" : ""}">${x}</td>`).join("") + "</tr>").join("");
+    document.getElementById(id).innerHTML = `<table><thead><tr>${h}</tr></thead><tbody>${b}</tbody></table>`;
+  }
+
+  // 1. budget curve
+  const B = D.baselines, budgets = Object.keys(B.clip_greedy).map(Number).filter((k) => k <= 24).sort((a, b) => a - b);
+  const base = (m) => budgets.map((k) => [k, B[m][String(k)].answer[0] * 100]);
+  const rl = (s) => D.anytime[s].map((v, i) => [i + 1, v * 100]);
+  C.lineChart(document.getElementById("c-budget"), {
+    aria: "glimpse budget별 성공률: CLIP-greedy, RL, random",
+    series: [
+      { name: "CLIP-greedy (학습 없음)", short: "CLIP-greedy", color: "--s2", points: base("clip_greedy"), markers: true },
+      { name: "RL clip_full", short: "clip_full", color: "--s1", points: rl("clip_full") },
+      { name: "RL clip_full_cgl", short: "+CGL", color: "--s3", points: rl("clip_full_cgl") },
+      { name: "RL oracle", short: "oracle", color: "--s4", points: rl("oracle") },
+      { name: "random", short: "random", color: "--ref", points: base("random"), markers: true },
+    ],
+    refs: [{ y: B.clip_greedy["256"].answer[0] * 100, label: "CLIP argmax, 256칸 전부" }],
+    xMin: 1, xMax: 24, yMax: 80, xTicks: [1, 4, 8, 12, 16, 20, 24],
+    xLabel: "glimpse budget", yLabel: "성공률 (%)",
+    yFmt: (v) => v.toFixed(v % 1 ? 1 : 0) + "%", xTipFmt: (v) => `budget ${v}`,
+  });
+  table("t-budget", ["budget", "random", "CLIP-greedy", "RL clip_full", "RL +CGL", "RL oracle"],
+    budgets.map((k) => [k, pct(B.random[k].answer[0]), pct(B.clip_greedy[k].answer[0]),
+      pct(D.anytime.clip_full[k - 1]), pct(D.anytime.clip_full_cgl[k - 1]), pct(D.anytime.oracle[k - 1])]));
+
+  // 2. training curves (mean over folds)
+  const avg = (s) => {
+    const a = D.train_curves[s + "_f0"], b = D.train_curves[s + "_f1"];
+    return a.map((p, i) => [p[0], ((p[1] + b[i][1]) / 2) * 100]);
+  };
+  C.lineChart(document.getElementById("c-train"), {
+    aria: "PPO 학습 중 train 성공률",
+    series: [
+      { name: "RL clip_full", short: "clip_full", color: "--s1", points: avg("clip_full") },
+      { name: "RL clip_full_cgl", short: "+CGL", color: "--s3", points: avg("clip_full_cgl") },
+      { name: "RL oracle", short: "oracle", color: "--s4", points: avg("oracle") },
+    ],
+    xMin: 0, xMax: 400, yMax: 70, xTicks: [0, 100, 200, 300, 400],
+    xLabel: "PPO iteration", yLabel: "train 성공률 (%)",
+    yFmt: (v) => v.toFixed(v % 1 ? 1 : 0) + "%", xTipFmt: (v) => `iter ${v}`,
+  });
+  const it = [0, 100, 200, 300, 399];
+  table("t-train", ["iter"].concat(SPECS.map((s) => NAMES[s])),
+    it.map((k) => [k].concat(SPECS.map((s) => (avg(s).find((p) => p[0] === k)[1]).toFixed(1) + "%"))));
+
+  // 3. outcome breakdown
+  const parts = [
+    { key: "success", name: "성공", color: "--s1" },
+    { key: "near_miss", name: "near-miss", color: "--s2" },
+    { key: "distractor", name: "distractor", color: "--s3" },
+    { key: "timeout", name: "timeout", color: "--s4" },
+  ];
+  C.stackBar(document.getElementById("c-out"), {
+    aria: "spec별 결과 구성",
+    parts,
+    rows: SPECS.map((s) => ({ name: s, values: parts.map((p) => D.summary[s].metrics[p.key][0]) })),
+  });
+  table("t-main", ["spec", "성공", "near-miss", "distractor", "timeout", "hacked", "평균 step", "train 성공", "static top-1"],
+    SPECS.map((s) => { const m = D.summary[s].metrics, S = D.summary[s];
+      return [s, ci(m.success), ci(m.near_miss), ci(m.distractor), ci(m.timeout), ci(m.hacked), m.steps[0].toFixed(1), ci(S.train_success), ci(S.static_top1)]; }));
+
+  // 4. paired
+  const prow = (p) => ({ name: `${p.a} − ${p.b}`, mean: p.diff[0] * 100, lo: p.diff[1] * 100, hi: p.diff[2] * 100, p: p.p,
+    color: p.diff[2] < 0 ? "--s2" : "--s1" });
+  C.ciPlot(document.getElementById("c-pair"), { aria: "짝지은 비교", rows: D.paired.map(prow), xMin: -20, xMax: 20, step: 5 });
+  table("t-pair", ["A − B", "평균 차이", "95% CI", "Wilcoxon p", "판정"],
+    D.paired.map((p) => [`${p.a} − ${p.b}`, (p.diff[0] * 100).toFixed(1) + "pp",
+      `[${(p.diff[1] * 100).toFixed(1)}, ${(p.diff[2] * 100).toFixed(1)}]`, p.p.toFixed(3), p.p < 0.025 ? "유의" : "불확실"]));
+
+  // 5. gaze
+  table("t-gaze", ["spec", "gaze CC", "성공률"],
+    D.gaze.map((g) => [g.spec, `${g.cc[0].toFixed(3)} <span class="muted">[${g.cc[1].toFixed(3)}, ${g.cc[2].toFixed(3)}]</span>`, ci(D.summary[g.spec].metrics.success)]));
+
+  // 6. prompts
+  table("t-prompt", ["prompt", "템플릿", "top-1", "목표 percentile"],
+    D.prompts.map((p) => [p.prompt, `<code>${p.text}</code>`, ci(p.top1), ci(p.gt_pct)]), 2);
+})();
+</script>
+</body>
+</html>

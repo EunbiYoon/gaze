@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gaze Search Runbook</title>
+<meta name="description" content="Unity HPC에서 waldo_gaze 파이프라인을 돌리는 순서와 판단 기준.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><div class="in">
+  <a class="brand" href="index.html">Box-free Gaze Search</a>
+  <nav><a href="index.html">개요</a><a href="results.html">결과</a><a href="runbook.html" aria-current="page">실행 순서</a></nav>
+</div></header>
+<main>
+
+<h1>실행 순서</h1>
+<p class="lede">Unity HPC, conda env <code>gaze</code> (torch 2.5.1+cu121, transformers 4.46.3). 모든 명령은 <code>waldo_gaze/</code>에서 실행. GPU 작업은 할당(salloc/sbatch) 안에서만.</p>
+
+<h2>0. 환경</h2>
+<pre><code>cd /scratch/workspace/eunbiyoon_umass_edu-paper/waldo_gaze
+source scripts/activate.sh      # conda activate gaze + HF_HOME
+which python                    # .../envs/gaze/bin/python 이어야 함 (waldo env는 깨져 있음)</code></pre>
+<p class="small">transformers 5.x는 torch ≥ 2.6을 요구하므로 올리지 않는다. config 덮어쓰기는 <code>--set key=value</code>, zsh에서는 <code>"protocol.seeds=[0]"</code>처럼 따옴표.</p>
+
+<h2>완료된 단계</h2>
+<div class="steps">
+  <div class="step"><div class="n">1 · CACHE</div><b>713 + 713 hflip</b><span class="badge ok">완료</span></div>
+  <div class="step"><div class="n">2 · BASELINES</div><b>greedy ≫ random</b><span class="badge ok">통과</span></div>
+  <div class="step"><div class="n">3 · 작은 RL</div><b>6 run, 각 ~80초</b><span class="badge no">greedy 미달</span></div>
+</div>
+<details><summary>완료된 단계의 명령 (재현용)</summary>
+<pre><code># 1. 캐시 (GPU 2장, 이미 된 이미지는 skip)
+for g in 0 1; do CUDA_VISIBLE_DEVICES=$g python -m waldo_gaze.cache \
+  --config configs/coco_search18.yaml --shard $g --nshards 2 --device cuda \
+  &gt;&gt; logs/coco_search18/cache_$g.log 2&gt;&amp;1 &amp; done; wait
+python -m waldo_gaze.cache --config configs/coco_search18.yaml --meta_only
+
+# 2. 기준선
+python tools/baselines.py --config configs/coco_search18.yaml
+
+# 3. 작은 RL (끝난 run은 skip)
+for g in 0 1; do CUDA_VISIBLE_DEVICES=$g python -m waldo_gaze.run \
+  --config configs/coco_search18.yaml \
+  --specs oracle clip_full clip_full_cgl --folds 0 1 --seeds 0 \
+  --set ppo.iters=400 --shard $g --nshards 2 \
+  &gt; logs/coco_search18/rl_$g.log 2&gt;&amp;1 &amp; done; wait
+python -m waldo_gaze.analyze --config configs/coco_search18.yaml</code></pre>
+</details>
+
+<h2>4. 다음: 학습량 진단 (train fold만 보고 판단)</h2>
+<p>train 성공률이 iter 400에서도 오르는 중이었다. iters를 늘리면 train 성공률이 greedy 수준(≈60%)을 넘는지 본다. <b>판단은 로그의 train <code>succ</code>로만</b> 한다 — held-out 결과를 보고 iters를 고르지 않는다.</p>
+<pre><code># GPU 1장 할당 안에서 (예: salloc 후 tmux 안)
+CUDA_VISIBLE_DEVICES=0 python -m waldo_gaze.run --config configs/coco_search18.yaml \
+  --specs clip_full --folds 0 --seeds 0 \
+  --set ppo.iters=1500 results_dir=results/coco_search18_diag_iters \
+  &gt; logs/coco_search18/diag_iters.log 2&gt;&amp;1
+
+grep -E "it +(0|300|600|900|1200|1490) " logs/coco_search18/diag_iters.log</code></pre>
+<ul>
+  <li><code>results_dir</code>를 따로 줘야 한다. 같은 이름의 run json이 있으면 skip된다.</li>
+  <li>400 iter에 약 77초였으므로 1500 iter는 대략 5분.</li>
+</ul>
+<div class="gate">train <code>succ</code>가 60%를 넘으면 → 그 iters로 고정(train 기준)하고 3 spec × 2 fold를 다시 돌려 같은 budget에서 greedy와 비교.</div>
+<div class="gate bad">1500 iter에서도 ≈50%에 머물면 → 학습량 문제가 아니다. 정책 입력·행동 구조(zoom 비용, 정지 판단)나 보상 구조를 먼저 본다.</div>
+
+<h2>5. 그다음 (게이트 통과 시)</h2>
+<pre><code># 전체 격자: 5 fold × 3 seed, 끝난 run은 skip → 선점돼도 재실행하면 이어짐
+for g in 0 1; do CUDA_VISIBLE_DEVICES=$g python -m waldo_gaze.run \
+  --config configs/coco_search18.yaml --specs oracle clip_full clip_full_cgl \
+  --shard $g --nshards 2 &gt; logs/coco_search18/full_$g.log 2&gt;&amp;1 &amp; done; wait
+python -m waldo_gaze.analyze --config configs/coco_search18.yaml</code></pre>
+<p class="small">긴 실행은 <code>sbatch --requeue</code>로. gpu-preempt는 선점될 수 있다 (m5는 2026-10-21 17:09에 선점됨).</p>
+
+<h2>원칙</h2>
+<ul>
+  <li>하이퍼파라미터·프롬프트를 test 결과 보고 바꾸지 않는다. κ만 train fold에서 선택.</li>
+  <li>코드 수정은 패치로. <code>unzip -o</code>로 덮어쓰지 않는다 (activate.sh가 waldo env로 되돌아간 전례).</li>
+  <li>tmux 안에서 실행하면 터미널을 닫아도 계속 돈다. 분리 <code>Ctrl-b d</code>, 복귀 <code>tmux attach -t m5</code>.</li>
+</ul>
+
+<footer>업데이트 2026-10-21</footer>
+</main>
+</body>
+</html>

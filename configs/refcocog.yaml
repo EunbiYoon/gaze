@@ -1,0 +1,13 @@
+# RefCOCOg (umd): one referred object per image, chosen only when the image has >= 1 other object of
+# the same category (tools/convert_refcocog.py). Tests whether rewards pick the described instance
+# over same-category distractors.
+_base: base.yaml
+data: {ann: data/refcocog/annotations.json, images: data/refcocog/images}
+cache_dir: cache/refcocog
+results_dir: results/refcocog
+compare:
+  - [clip_full, clip_name]               # does the full description beat the bare category?
+  - [clip_pe_pess, clip_pe_mean]
+  - [learned_pess, learned]
+  - [clip_full, oracle]
+  - [learned, oracle]

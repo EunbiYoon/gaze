@@ -1,0 +1,95 @@
+# Shared settings for every dataset. Dataset configs set `_base: base.yaml` and override.
+# Every hyperparameter is fixed BEFORE looking at test folds. The only data-chosen value is kappa
+# (pessimism strength), selected on TRAINING-fold images only (see rewards.py).
+
+data: {ann: null, images: null, category: null}
+target_defaults: {query: "", category: "", attrs: []}   # used when an image entry lacks the field
+
+cache_dir: cache/NAME
+results_dir: results/NAME
+
+augment:
+  hflip: true          # mirrored copy of every image, used ONLY as extra training images of its own fold
+
+encoder:
+  type: clip           # clip | fake (fake = synthetic smoke tests only)
+  name: openai/clip-vit-base-patch32
+  batch_size: 256
+  hf_cache: null
+
+grid:
+  levels: [4, 8, 16]   # glimpse grid per zoom level; each level doubles the previous
+  context: 0.5         # square crop = cell side * (1 + 2*context)
+  periph_level: 1      # peripheral map + saccade targets live on this level
+  periph_pca: 8        # PCA channels of the peripheral map (fit on train fold only)
+
+# Prompt TEMPLATES, filled per image with its own {query} / {category}. Paraphrase templates are
+# dataset-agnostic on purpose: nothing here is tuned per dataset.
+prompts:
+  full: "{query}"
+  name: "{category}"
+  para1: "a photo of {query}"
+  para2: "a cropped image showing {query}"
+  para3: "{query}, seen in a crowded scene"
+  para4: "a close-up of {query}"
+  para5: "an illustration of {query}"
+attr_template: "{attr}"
+max_attrs: 4
+
+specs:
+  oracle:       {type: oracle}
+  clip_name:    {type: clip, prompts: [name]}
+  clip_full:    {type: clip, prompts: [full]}
+  clip_pe_mean: {type: clip_ens, kappa: 0.0,  prompts: [full, para1, para2, para3, para4, para5]}
+  clip_pe_pess: {type: clip_ens, kappa: auto, prompts: [full, para1, para2, para3, para4, para5]}
+  learned:      {type: learned, kappa: 0.0}
+  learned_pess: {type: learned, kappa: auto}
+
+protocol:
+  n_folds: 5           # image-level CV: every image is a test image exactly once
+  split_seed: 0
+  seeds: [0, 1, 2]
+  kappa_grid: [0.0, 0.5, 1.0, 2.0]
+  save_ckpt_seeds: [0]
+
+learned:
+  n_members: 8         # bootstrap-over-images ensemble (epistemic uncertainty)
+  C: 0.5
+
+env:
+  horizon: 24
+  step_cost: 0.02
+  timeout_penalty: -3.0
+  oracle_scale: 4.0
+  oracle_wrong_stop: -1.0   # < 0 so a blind stop is never free; > timeout_penalty so the agent still commits
+  shaping: true        # potential-based shaping with the spec score: policy-invariant (Ng et al. 1999),
+  shaping_scale: 1.0   # fixes exploration, cannot fix a misspecified reward - which is the point
+  gamma: 0.99
+
+ppo:
+  n_envs: 512
+  iters: 150
+  epochs: 4
+  minibatch: 2048
+  lr: 3.0e-4
+  clip: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
+  gae_lambda: 0.95
+  max_grad_norm: 0.5
+  hidden: 256
+  sim_prior: 2.0       # saccades start at 2 x CLIP text-similarity z-score per cell; 0 = learn from scratch
+  log_every: 10
+
+eval:
+  train_starts: 16
+
+analysis:
+  group_by: null       # image meta key to break results down by (e.g. n_partial)
+  budget_specs: [oracle, clip_full, learned, learned_pess]
+
+compare:
+  - [clip_pe_pess, clip_pe_mean]
+  - [learned_pess, learned]
+  - [clip_full, oracle]
+  - [learned, oracle]

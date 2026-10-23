@@ -1,0 +1,23 @@
+# Controlled scenes (tools/make_controlled.py): one target with 4 attributes, and n_partial
+# distractors that share exactly 3 of them. Dose-response: does hacking grow with n_partial?
+_base: base.yaml
+data: {ann: data/controlled/annotations.json, images: data/controlled/images}
+cache_dir: cache/controlled
+results_dir: results/controlled
+specs:
+  oracle:         {type: oracle}
+  clip_name:      {type: clip, prompts: [name]}
+  clip_full:      {type: clip, prompts: [full]}
+  clip_mean_attr: {type: clip_attr, agg: mean}
+  clip_conj:      {type: clip_attr, agg: min}
+  clip_pe_mean:   {type: clip_ens, kappa: 0.0,  prompts: [full, para1, para2, para3, para4, para5]}
+  clip_pe_pess:   {type: clip_ens, kappa: auto, prompts: [full, para1, para2, para3, para4, para5]}
+  learned:        {type: learned, kappa: 0.0}
+  learned_pess:   {type: learned, kappa: auto}
+analysis: {group_by: n_partial, budget_specs: [oracle, clip_full, clip_conj, learned_pess]}
+compare:
+  - [clip_conj, clip_full]
+  - [clip_conj, clip_mean_attr]
+  - [clip_pe_pess, clip_pe_mean]
+  - [learned_pess, learned]
+  - [clip_full, oracle]
